@@ -1,0 +1,15 @@
+/home/atticus/Projects/NEScalibur/bin/Debug/net9.0/NEScalibur
+/home/atticus/Projects/NEScalibur/bin/Debug/net9.0/NEScalibur.deps.json
+/home/atticus/Projects/NEScalibur/bin/Debug/net9.0/NEScalibur.runtimeconfig.json
+/home/atticus/Projects/NEScalibur/bin/Debug/net9.0/NEScalibur.dll
+/home/atticus/Projects/NEScalibur/bin/Debug/net9.0/NEScalibur.pdb
+/home/atticus/Projects/NEScalibur/obj/Debug/net9.0/NEScalibur.GeneratedMSBuildEditorConfig.editorconfig
+/home/atticus/Projects/NEScalibur/obj/Debug/net9.0/NEScalibur.AssemblyInfoInputs.cache
+/home/atticus/Projects/NEScalibur/obj/Debug/net9.0/NEScalibur.AssemblyInfo.cs
+/home/atticus/Projects/NEScalibur/obj/Debug/net9.0/NEScalibur.csproj.CoreCompileInputs.cache
+/home/atticus/Projects/NEScalibur/obj/Debug/net9.0/NEScalibur.sourcelink.json
+/home/atticus/Projects/NEScalibur/obj/Debug/net9.0/NEScalibur.dll
+/home/atticus/Projects/NEScalibur/obj/Debug/net9.0/refint/NEScalibur.dll
+/home/atticus/Projects/NEScalibur/obj/Debug/net9.0/NEScalibur.pdb
+/home/atticus/Projects/NEScalibur/obj/Debug/net9.0/NEScalibur.genruntimeconfig.cache
+/home/atticus/Projects/NEScalibur/obj/Debug/net9.0/ref/NEScalibur.dll
