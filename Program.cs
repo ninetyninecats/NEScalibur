@@ -1,8 +1,11 @@
-﻿class Emulator {
+﻿using Microsoft.VisualBasic;
+
+class Emulator {
     static ushort PC;
     static byte A;
     static byte X;
     static byte Y;
+    static byte SP;
     static bool carryFlag;
     static bool zeroFlag;
     static bool interruptDisableFlag;
@@ -43,6 +46,78 @@
         case 0x02: // HLT
             halted = true;
             break;
+        case 0x10: // BPL, 2 cycles, 3 if branch was taken, 4 if a page was
+                   // crossed
+            temp = Read(PC);
+            PC += 1;
+            if (!negativeFlag) {
+                int offset = temp;
+                if (offset > 127)
+                    offset -= 256;
+                PC = (ushort)(PC + offset);
+            }
+            break;
+        case 0x20: // JSR, 6 cycles
+            tempLow = Read(PC);
+            PC += 1;
+            tempHigh = Read(PC);
+            Push((byte)(PC >> 8));
+            Push((byte)PC);
+            PC = (ushort)(tempLow + tempHigh * 0x100);
+            break;
+        case 0x30: // BMI, 2 cycles, 3 if branch was taken, 4 if a page was
+                   // crossed
+            temp = Read(PC);
+            PC += 1;
+            if (negativeFlag) {
+                int offset = temp;
+                if (offset > 127)
+                    offset -= 256;
+                PC = (ushort)(PC + offset);
+            }
+            break;
+        case 0x48: // PHA, 3 cycles
+            Push(A);
+            break;
+        case 0x4C: // JMP, 3 cycles
+            tempLow = Read(PC);
+            PC += 1;
+            tempHigh = Read(PC);
+            PC = (ushort)(tempLow + tempHigh * 0x100);
+            break;
+        case 0x50: // BVC, 2 cycles, 3 if branch was taken, 4 if a page was
+                   // crossed
+            temp = Read(PC);
+            PC += 1;
+            if (!overflowFlag) {
+                int offset = temp;
+                if (offset > 127)
+                    offset -= 256;
+                PC = (ushort)(PC + offset);
+            }
+            break;
+        case 0x60: // RTS, 6 cycles
+            tempLow = Pull();
+            tempHigh = Pull();
+            PC = (ushort)(tempLow + tempHigh * 0x100);
+            PC += 1;
+            break;
+        case 0x68: // PLA, 4 cycles
+            A = Pull();
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
+        case 0x70: // BVS, 2 cycles, 3 if branch was taken, 4 if a page was
+                   // crossed
+            temp = Read(PC);
+            PC += 1;
+            if (overflowFlag) {
+                int offset = temp;
+                if (offset > 127)
+                    offset -= 256;
+                PC = (ushort)(PC + offset);
+            }
+            break;
         case 0x84: // STY Zero Page, 3 cycles
             temp = Read(PC);
             PC += 1;
@@ -78,6 +153,16 @@
             tempHigh = Read(PC);
             PC += 1;
             Write(X, (ushort)(tempLow + tempHigh * 0x100));
+            break;
+        case 0x90: // BCC, 2 cycles, 3 if branch was taken, 4 if page crossed
+            temp = Read(PC);
+            PC += 1;
+            if (!carryFlag) {
+                int offset = temp;
+                if (offset > 127)
+                    offset -= 256;
+                PC = (ushort)(PC + offset);
+            }
             break;
         case 0xA0: // LDY Immediate, 2 cycles
             Y = Read(PC);
@@ -129,6 +214,39 @@
             zeroFlag = X == 0;
             negativeFlag = X > 127;
             break;
+        case 0xB0: // BCS, 2 cycles, 3 if branch was taken, 4 if a page was
+                   // crossed
+            temp = Read(PC);
+            PC += 1;
+            if (carryFlag) {
+                int offset = temp;
+                if (offset > 127)
+                    offset -= 256;
+                PC = (ushort)(PC + offset);
+            }
+            break;
+        case 0xD0: // BNE, 2 cycles, 3 if branch was taken, 4 if a page was
+                   // crossed
+            temp = Read(PC);
+            PC += 1;
+            if (!zeroFlag) {
+                int offset = temp;
+                if (offset > 127)
+                    offset -= 256;
+                PC = (ushort)(PC + offset);
+            }
+            break;
+        case 0xF0: // BEQ, 2 cycles, 3 if branch was taken,  if a page was
+                   // crossed
+            temp = Read(PC);
+            PC += 1;
+            if (zeroFlag) {
+                int offset = temp;
+                if (offset > 127)
+                    offset -= 256;
+                PC = (ushort)(PC + offset);
+            }
+            break;
         default:
             throw new Exception(
                 $"Unknown opcode encountered: {opcode.ToString("X2")}");
@@ -149,11 +267,21 @@
             RAM[address] = value;
     }
 
+    public static void Push(byte value) {
+        Write(value, (ushort)(0x100 + SP));
+        SP -= 1;
+    }
+    public static byte Pull() {
+        SP += 1;
+        return Read((ushort)(0x100 + SP));
+    }
+
     public static void Reset() {
         byte[] romFile = File.ReadAllBytes(ROMFilePath);
         Array.Copy(romFile, 0x10, ROM, 0, 0x8000);
         Array.Copy(romFile, ROMHeader, 0x10);
         interruptDisableFlag = true;
         PC = (ushort)(Read(0xFFFC) + Read(0xFFFD) * 0x100);
+        SP = 0xFD;
     }
 }
