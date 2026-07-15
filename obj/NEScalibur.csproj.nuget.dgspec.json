@@ -43,6 +43,16 @@
       "frameworks": {
         "net9.0": {
           "targetAlias": "net9.0",
+          "dependencies": {
+            "ppy.SDL3-CS": {
+              "target": "Package",
+              "version": "[2026.629.0, )"
+            },
+            "ppy.SDL3_ttf-CS": {
+              "target": "Package",
+              "version": "[2026.629.0, )"
+            }
+          },
           "imports": [
             "net461",
             "net462",

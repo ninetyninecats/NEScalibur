@@ -1,8 +1,11 @@
 {
   "version": 2,
-  "dgSpecHash": "7ny/wZD9zUE=",
+  "dgSpecHash": "7izamr2tjDk=",
   "success": true,
   "projectFilePath": "/home/atticus/Projects/NEScalibur/NEScalibur.csproj",
-  "expectedPackageFiles": [],
+  "expectedPackageFiles": [
+    "/home/atticus/.nuget/packages/ppy.sdl3-cs/2026.629.0/ppy.sdl3-cs.2026.629.0.nupkg.sha512",
+    "/home/atticus/.nuget/packages/ppy.sdl3_ttf-cs/2026.629.0/ppy.sdl3_ttf-cs.2026.629.0.nupkg.sha512"
+  ],
   "logs": []
 }
