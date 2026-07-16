@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("NEScalibur")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+98d0c225c50910e6b9bffa3fddfba1804a1f8816")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+62ab2b6f667628eb84b386da562a3c52f3a4812f")]
 [assembly: System.Reflection.AssemblyProductAttribute("NEScalibur")]
 [assembly: System.Reflection.AssemblyTitleAttribute("NEScalibur")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

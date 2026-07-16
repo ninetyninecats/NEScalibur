@@ -1,4 +1,5 @@
 ﻿using System.Linq.Expressions;
+using System.Net.Sockets;
 using SDL;
 unsafe class Emulator {
     public static EmulatorWindow window;
@@ -152,12 +153,12 @@ unsafe class Emulator {
 
         SDL3.SDL_RenderPresent(window.renderer);
     }
-    public static void PrintLogLine(byte opcode) {
+    public static void PrintLogLine(byte opcode, ushort tempPC) {
         string lineString =
-            "$" + PC.ToString("X4") + " " + opcode.ToString("X2") + " " +
+            "$" + tempPC.ToString("X4") + " " + opcode.ToString("X2") + " " +
             opcodes[opcode] + "   " + " A: " + A.ToString("X2") +
             " X: " + X.ToString("X2") + " Y: " + Y.ToString("X2") +
-            " SP: " + SP.ToString("X2") + (negativeFlag ? "N" : "n") +
+            " SP: " + SP.ToString("X2") + " " + (negativeFlag ? "N" : "n") +
             (overflowFlag ? "V" : "v") + "--" + (decimalFlag ? "D" : "d") +
             (interruptDisableFlag ? "I" : "i") + (zeroFlag ? "Z" : "z") +
             (carryFlag ? "C" : "c");
@@ -181,13 +182,13 @@ unsafe class Emulator {
         bool tempCarry;
         int sum;
         byte opcode = Read(PC);
+        ushort tempPC = PC;
         PC += 1;
 
-        PrintLogLine(opcode);
         switch (opcode) {
         case 0x00: // BRK
-            Push((byte)((PC + 2) >> 8));
-            Push((byte)(PC + 2));
+            Push((byte)((PC + 1) >> 8));
+            Push((byte)(PC + 1));
             temp = 0;
             if (negativeFlag)
                 temp += 128;
@@ -204,7 +205,16 @@ unsafe class Emulator {
             if (carryFlag)
                 temp += 1;
             Push(temp);
+            interruptDisableFlag = true;
             PC = 0xFFFE;
+            tempAddr = ReadAbsoluteAddress();
+            PC = tempAddr;
+            break;
+        case 0x01: // ORA Indirect, X, 6 cycles
+            tempAddr = ReadIndirectXIndexedAddress();
+            A |= Read(tempAddr);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
             break;
         case 0x02: // HLT
             halted = true;
@@ -282,16 +292,67 @@ unsafe class Emulator {
                 PC = (ushort)(PC + offset);
             }
             break;
+        case 0x11: // ORA Indirect, Y, 5 cycles, 6 if a page was crossed
+            tempAddr = ReadIndirectYIndexedAddress();
+            A |= Read(tempAddr);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
+        case 0x15: // ORA Zero Page, X, 4 cycles
+            tempLow = (byte)(Read(PC) + X);
+            PC += 1;
+            A |= Read(tempLow);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
+        case 0x16: // ASL Zero Page, X, 6 cycles
+            tempLow = (byte)(Read(PC) + X);
+            PC += 1;
+            temp = Read(tempLow);
+            carryFlag = temp > 127;
+            temp = (byte)(temp << 1);
+            Write(temp, tempLow);
+            zeroFlag = temp == 0;
+            negativeFlag = temp > 127;
+            break;
         case 0x18: // CLC, 2 cycles
             carryFlag = false;
+            break;
+        case 0x19: // ORA Absolute, Y, 4 cycles, 5 if a page was crossed
+            tempAddr = ReadAbsoluteYIndexedAddress();
+            A |= Read(tempAddr);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
+        case 0x1D: // ORA Absolute, X, 4 cycles, 5 if a page was crossed
+            tempAddr = ReadAbsoluteXIndexedAddress();
+            A |= Read(tempAddr);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
+        case 0x1E: // ASL Absolute, X, 7 cycles
+            tempAddr = ReadAbsoluteXIndexedAddress();
+            temp = Read(tempAddr);
+            carryFlag = temp > 127;
+            temp = (byte)(temp << 1);
+            Write(temp, tempAddr);
+            zeroFlag = temp == 0;
+            negativeFlag = temp > 127;
             break;
         case 0x20: // JSR, 6 cycles
             tempLow = Read(PC);
             PC += 1;
             tempHigh = Read(PC);
+            PC += 1;
             Push((byte)(PC >> 8));
             Push((byte)PC);
             PC = (ushort)(tempLow + tempHigh * 0x100);
+            break;
+        case 0x21: // AND Indirect, X, 6 cycles
+            tempAddr = ReadIndirectXIndexedAddress();
+            A &= Read(tempAddr);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
             break;
         case 0x24: // BIT Zero Page, 3 cycles
             tempLow = Read(PC);
@@ -378,8 +439,55 @@ unsafe class Emulator {
                 PC = (ushort)(PC + offset);
             }
             break;
+        case 0x31: // AND Indirect, Y, 5 cycles, 6 if a page was crossed
+            tempAddr = ReadIndirectYIndexedAddress();
+            A &= Read(tempAddr);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
+        case 0x35: // AND Zero Page, X, 4 cycles
+            tempLow = (byte)(Read(PC) + X);
+            A &= Read(tempLow);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
+        case 0x36: // ROL Zero Page, X, 6 cycles
+            tempLow = (byte)(Read(PC) + X);
+            PC += 1;
+            temp = Read(tempLow);
+            tempCarry = carryFlag;
+            carryFlag = temp > 127;
+            temp = (byte)(temp << 1);
+            temp |= Convert.ToByte(tempCarry);
+            Write(temp, tempLow);
+            zeroFlag = temp == 0;
+            negativeFlag = temp > 127;
+            break;
         case 0x38: // SEC, 2 cycles
             carryFlag = true;
+            break;
+        case 0x39: // AND Absolute, Y, 4 cycles, 5 if a page was crossed
+            tempAddr = ReadAbsoluteYIndexedAddress();
+            A &= Read(tempAddr);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
+        case 0x3D: // AND Absolute, X, 4 cycles, 5 if a page was crossed
+            tempAddr = ReadAbsoluteXIndexedAddress();
+            A &= Read(tempAddr);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
+        case 0x3E: // ROL Absolute, X, 7 cycles
+            tempAddr = ReadAbsoluteXIndexedAddress();
+            temp = Read(tempAddr);
+            tempCarry = carryFlag;
+            carryFlag = temp > 127;
+            temp = (byte)(temp << 1);
+            temp |= Convert.ToByte(tempCarry);
+            Write(temp, tempAddr);
+            zeroFlag = temp == 0;
+            negativeFlag = temp > 127;
             break;
         case 0x40: // RTI, 6 cycles
             temp = Pull();
@@ -392,6 +500,12 @@ unsafe class Emulator {
             tempLow = Pull();
             tempHigh = Pull();
             PC = (ushort)(tempLow + tempHigh * 0x100);
+            break;
+        case 0x41: // EOR Indirect, X, 6 cycles
+            tempAddr = ReadIndirectXIndexedAddress();
+            A ^= Read(tempAddr);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
             break;
         case 0x45: // EOR Zero Page, 3 cycles
             tempLow = Read(PC);
@@ -457,11 +571,59 @@ unsafe class Emulator {
                 PC = (ushort)(PC + offset);
             }
             break;
+        case 0x51: // EOR Indirect, Y, 5 cycles, 6 if a page was crossed
+            tempAddr = ReadIndirectYIndexedAddress();
+            A ^= Read(tempAddr);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
+        case 0x55: // EOR Zero Page, X, 4 cycles
+            tempLow = (byte)(Read(PC) + X);
+            PC += 1;
+            A ^= Read(tempLow);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
+        case 0x56: // LSR Zero Page, X, 6 cycles
+            tempLow = (byte)(Read(PC) + X);
+            PC += 1;
+            temp = Read(tempLow);
+            carryFlag = temp % 2 == 1;
+            temp = (byte)(temp >> 1);
+            Write(temp, tempLow);
+            zeroFlag = temp == 0;
+            negativeFlag = temp > 127;
+            break;
+        case 0x5D: // EOR Absolute, X, 4 cycles,5 if a page was crossed
+            tempAddr = ReadAbsoluteXIndexedAddress();
+            A ^= Read(tempAddr);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
+        case 0x5E: // LSR Absolute, X, 7 cycles
+            tempAddr = ReadAbsoluteXIndexedAddress();
+            temp = Read(tempAddr);
+            carryFlag = temp % 2 == 1;
+            temp = (byte)(temp >> 1);
+            Write(temp, tempAddr);
+            zeroFlag = temp == 0;
+            negativeFlag = temp > 127;
+            break;
         case 0x60: // RTS, 6 cycles
             tempLow = Pull();
             tempHigh = Pull();
             PC = (ushort)(tempLow + tempHigh * 0x100);
             PC += 1;
+            break;
+        case 0x61: // ADC Indirect, X, 6 cycles
+            tempAddr = ReadIndirectXIndexedAddress();
+            temp = Read(tempAddr);
+            sum = A + temp + Convert.ToByte(carryFlag);
+            overflowFlag = (~(A ^ temp) & (A ^ sum) & 128) != 0;
+            carryFlag = sum > 255;
+            A = (byte)sum;
+            zeroFlag = sum == 0;
+            negativeFlag = sum > 127;
             break;
         case 0x65: // ADC Zero Page, 3 cycles
             tempLow = Read(PC);
@@ -509,6 +671,15 @@ unsafe class Emulator {
             zeroFlag = A == 0;
             negativeFlag = A > 127;
             break;
+        case 0x6C: // JMP Indirect, 5 cycles
+            tempLow = Read(PC);
+            PC += 1;
+            tempHigh = Read(PC);
+            tempAddr = (ushort)(tempLow + tempHigh * 0x100);
+            tempLow = Read(tempAddr);
+            tempHigh = Read((ushort)(tempAddr + 1));
+            PC = (ushort)(tempLow + tempHigh * 0x100);
+            break;
         case 0x6D: // ADC Absolute, 4 cycles
             tempAddr = ReadAbsoluteAddress();
             temp = Read(tempAddr);
@@ -541,8 +712,75 @@ unsafe class Emulator {
                 PC = (ushort)(PC + offset);
             }
             break;
+        case 0x71: // ADC Indirect, Y, 5 cycles, 6 if a page was crossed
+            tempAddr = ReadIndirectYIndexedAddress();
+            temp = Read(tempAddr);
+            sum = A + temp + Convert.ToByte(carryFlag);
+            overflowFlag = (~(A ^ temp) & (A ^ sum) & 128) != 0;
+            carryFlag = sum > 255;
+            A = (byte)sum;
+            zeroFlag = sum == 0;
+            negativeFlag = sum > 127;
+            break;
+        case 0x75: // ADC Zero Page, X 4 cycles
+            tempLow = (byte)(Read(PC) + X);
+            PC += 1;
+            temp = Read(tempLow);
+            sum = A + temp + Convert.ToByte(carryFlag);
+            overflowFlag = (~(A ^ temp) & (A ^ sum) & 128) != 0;
+            carryFlag = sum > 255;
+            A = (byte)sum;
+            zeroFlag = sum == 0;
+            negativeFlag = sum > 127;
+            break;
+        case 0x76: // ROR, Zero Page, X, 6 cycles
+            tempLow = (byte)(Read(PC) + X);
+            temp = Read(tempLow);
+            tempCarry = carryFlag;
+            carryFlag = temp % 2 == 1;
+            temp = (byte)(temp >> 1);
+            temp |= (byte)(Convert.ToByte(tempCarry) * 128);
+            Write(temp, tempLow);
+            zeroFlag = temp == 0;
+            negativeFlag = temp > 127;
+            break;
         case 0x78: // SEI, 2 cycles
             interruptDisableFlag = true;
+            break;
+        case 0x79: // ADC Absolute, Y, 4 cycles, 5 if a page was crossed
+            tempAddr = ReadAbsoluteYIndexedAddress();
+            temp = Read(tempAddr);
+            sum = A + temp + Convert.ToByte(carryFlag);
+            overflowFlag = (~(A ^ temp) & (A ^ sum) & 128) != 0;
+            carryFlag = sum > 255;
+            A = (byte)sum;
+            zeroFlag = sum == 0;
+            negativeFlag = sum > 127;
+            break;
+        case 0x7D: // ADC Absolute, X, 4 cycles, 5 if a page was crossed
+            tempAddr = ReadAbsoluteXIndexedAddress();
+            temp = Read(tempAddr);
+            sum = A + temp + Convert.ToByte(carryFlag);
+            overflowFlag = (~(A ^ temp) & (A ^ sum) & 128) != 0;
+            carryFlag = sum > 255;
+            A = (byte)sum;
+            zeroFlag = sum == 0;
+            negativeFlag = sum > 127;
+            break;
+        case 0x7E: // ROR Absolute, X, 7 cycles
+            tempAddr = ReadAbsoluteXIndexedAddress();
+            temp = Read(tempAddr);
+            tempCarry = carryFlag;
+            carryFlag = temp % 2 == 1;
+            temp = (byte)(temp >> 1);
+            temp |= (byte)(Convert.ToByte(tempCarry) * 128);
+            Write(temp, tempAddr);
+            zeroFlag = temp == 0;
+            negativeFlag = temp > 127;
+            break;
+        case 0x81: // STA Indirect, X, 6 cycles
+            tempAddr = ReadIndirectXIndexedAddress();
+            Write(A, tempAddr);
             break;
         case 0x84: // STY Zero Page, 3 cycles
             temp = Read(PC);
@@ -586,19 +824,52 @@ unsafe class Emulator {
                 PC = (ushort)(PC + offset);
             }
             break;
+        case 0x91: // STA Indirect, Y, 6 cycles
+            tempAddr = ReadIndirectYIndexedAddress();
+            Write(A, tempAddr);
+            break;
+        case 0x94: // STY Zero Page, X, 4 cycles
+            tempLow = (byte)(Read(PC) + X);
+            PC += 1;
+            Write(Y, tempLow);
+            break;
+        case 0x95: // STA Zero Page, X, 4 cycles
+            temp = (byte)(Read(PC) + X);
+            PC += 1;
+            Write(A, temp);
+            break;
+        case 0x96: // STX Zero Page, X, 4 cycles
+            tempLow = (byte)(Read(PC));
+            PC += 1;
+            Write(X, tempLow);
+            break;
         case 0x98: // TYA, 2 cycles
             A = Y;
             zeroFlag = A == 0;
             negativeFlag = A > 127;
             break;
+        case 0x99: // STA Absolute, Y, 5 cycles
+            tempAddr = ReadAbsoluteYIndexedAddress();
+            Write(A, tempAddr);
+            break;
         case 0x9A: // TXS, 2 cycles
             SP = X;
+            break;
+        case 0x9D: // STA Absolute, X, 5 cycles
+            tempAddr = ReadAbsoluteXIndexedAddress();
+            Write(A, tempAddr);
             break;
         case 0xA0: // LDY Immediate, 2 cycles
             Y = Read(PC);
             PC += 1;
             zeroFlag = Y == 0;
             negativeFlag = Y > 127;
+            break;
+        case 0xA1: // LDA Indirect, X, 6 cycles
+            tempAddr = ReadIndirectXIndexedAddress();
+            A = Read(tempAddr);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
             break;
         case 0xA2: // LDX immediate, 2 cycles
             X = Read(PC);
@@ -656,8 +927,59 @@ unsafe class Emulator {
                 PC = (ushort)(PC + offset);
             }
             break;
+        case 0xB1: // LDA Indirect, Y, 5 cycles, 6 if a page was crossed
+            tempAddr = ReadIndirectYIndexedAddress();
+            A = Read(tempAddr);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
+        case 0xB4: // LDY Zero Page, X, 4 cycles
+            tempLow = (byte)(Read(PC) + X);
+            PC += 1;
+            Y = Read(tempLow);
+            zeroFlag = Y == 0;
+            negativeFlag = Y > 127;
+            break;
+        case 0xB5: // LDA Zero Page, X, 4 cycles
+            tempLow = (byte)(Read(PC) + X);
+            PC += 1;
+            A = Read(tempLow);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
+        case 0xB6: // LDX Zero Page, Y, 4 cycles
+            tempLow = (byte)(Read(PC) + Y);
+            PC += 1;
+            X = Read(tempLow);
+            zeroFlag = X == 0;
+            negativeFlag = X > 127;
+            break;
+        case 0xB9: // LDA Absolute, Y, 4 cycles, 5 if a page was crossed
+            tempAddr = ReadAbsoluteYIndexedAddress();
+            A = Read(tempAddr);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
         case 0xBA: // TSX, 2 cycles
             X = SP;
+            zeroFlag = X == 0;
+            negativeFlag = X > 127;
+            break;
+        case 0xBC: // LDY Absolute, X, 4 cycles, 5 if a page was crossed
+            tempAddr = ReadAbsoluteXIndexedAddress();
+            Y = Read(tempAddr);
+            zeroFlag = Y == 0;
+            negativeFlag = Y > 127;
+            break;
+        case 0xBD: // LDA Absolute, X, 4 cycles, 5 if a page was crossed
+            tempAddr = ReadAbsoluteXIndexedAddress();
+            A = Read(tempAddr);
+            zeroFlag = A == 0;
+            negativeFlag = A > 127;
+            break;
+        case 0xBE: // LDX Absolute, Y, 4 cycles, 5 if page was crossed
+            tempAddr = ReadAbsoluteYIndexedAddress();
+            X = Read(tempAddr);
             zeroFlag = X == 0;
             negativeFlag = X > 127;
             break;
@@ -667,6 +989,13 @@ unsafe class Emulator {
             carryFlag = Y >= temp;
             zeroFlag = Y == temp;
             negativeFlag = (byte)(Y - temp) > 127;
+            break;
+        case 0xC1: // CMP Indirect, X, 6 cycles
+            tempAddr = ReadIndirectXIndexedAddress();
+            temp = Read(tempAddr);
+            carryFlag = A >= temp;
+            zeroFlag = A == temp;
+            negativeFlag = (byte)(A - temp) > 127;
             break;
         case 0xC4: // CPY Zero Page, 3 cycles
             tempLow = Read(PC);
@@ -727,12 +1056,51 @@ unsafe class Emulator {
                 PC = (ushort)(PC + offset);
             }
             break;
+        case 0xD1: // CMP Indirect, Y, 5 cycles, 6 if a page was crossed
+            tempAddr = ReadIndirectYIndexedAddress();
+            temp = Read(tempAddr);
+            carryFlag = A >= temp;
+            zeroFlag = A == temp;
+            negativeFlag = (byte)(A - temp) > 127;
+            break;
+        case 0xD5: // CMP Zero Page, X, 4 cycles
+            tempLow = (byte)(Read(PC) + X);
+            PC += 1;
+            temp = Read(tempLow);
+            carryFlag = A >= temp;
+            zeroFlag = A == temp;
+            negativeFlag = (byte)(A - temp) > 127;
+            break;
+        case 0xD9: // CMP Absolute, Y, 4 cycles, 5 if a page was crossed
+            tempAddr = ReadAbsoluteYIndexedAddress();
+            temp = Read(tempAddr);
+            carryFlag = A >= temp;
+            zeroFlag = A == temp;
+            negativeFlag = (byte)(A - temp) > 127;
+            break;
+        case 0xDD: // CMP Absolute, X, 4 cycles, 5 if a page was crossed
+            tempAddr = ReadAbsoluteXIndexedAddress();
+            temp = Read(tempAddr);
+            carryFlag = A >= temp;
+            zeroFlag = A == temp;
+            negativeFlag = (byte)(A - temp) > 127;
+            break;
         case 0xE0: // CPX Immediate, 2 cycles
             temp = Read(PC);
             PC += 1;
             carryFlag = X >= temp;
             zeroFlag = X == temp;
             negativeFlag = (byte)(X - temp) > 127;
+            break;
+        case 0xE1: // SBC Indirect, X, 6 cycles
+            tempAddr = ReadIndirectXIndexedAddress();
+            temp = Read(tempAddr);
+            sum = A - temp - Convert.ToByte(carryFlag);
+            overflowFlag = ((A ^ temp) & (A ^ sum) & 128) != 0;
+            carryFlag = sum >= 0;
+            A = (byte)sum;
+            zeroFlag = sum == 0;
+            negativeFlag = sum > 127;
             break;
         case 0xE4: // CPX Zero Page, 3 cycles
             tempLow = Read(PC);
@@ -769,7 +1137,8 @@ unsafe class Emulator {
             break;
         case 0xE9: // SBC Immediate, 2 cycles
             temp = Read(PC);
-            sum = A - temp - Convert.ToByte(carryFlag);
+            PC += 1;
+            sum = A - temp - Convert.ToByte(!carryFlag);
             overflowFlag = ((A ^ temp) & (A ^ sum) & 128) != 0;
             carryFlag = sum >= 0;
             A = (byte)sum;
@@ -815,12 +1184,54 @@ unsafe class Emulator {
                 PC = (ushort)(PC + offset);
             }
             break;
+        case 0xF1: // SBC Indirect, Y, 5 cycles, 6 if a page was crossed
+            tempAddr = ReadIndirectYIndexedAddress();
+            temp = Read(tempAddr);
+            sum = A - temp - Convert.ToByte(carryFlag);
+            overflowFlag = ((A ^ temp) & (A ^ sum) & 128) != 0;
+            carryFlag = sum >= 0;
+            A = (byte)sum;
+            zeroFlag = sum == 0;
+            negativeFlag = sum > 127;
+            break;
+        case 0xF5: // SBC Zero Page, X, 4 cycles
+            tempLow = (byte)(Read(PC) + X);
+            PC += 1;
+            temp = Read(tempLow);
+            sum = A - temp - Convert.ToByte(carryFlag);
+            overflowFlag = ((A ^ temp) & (A ^ sum) & 128) != 0;
+            carryFlag = sum >= 0;
+            A = (byte)sum;
+            zeroFlag = sum == 0;
+            negativeFlag = sum > 127;
+            break;
         case 0xF8: // SED, 2 cycles
             decimalFlag = true;
+            break;
+        case 0xF9: // SBC Absolute, Y, 4 cycles, 5 if a page was crossed
+            tempAddr = ReadAbsoluteYIndexedAddress();
+            temp = Read(tempAddr);
+            sum = A - temp - Convert.ToByte(carryFlag);
+            overflowFlag = ((A ^ temp) & (A ^ sum) & 128) != 0;
+            carryFlag = sum >= 0;
+            A = (byte)sum;
+            zeroFlag = sum == 0;
+            negativeFlag = sum > 127;
+            break;
+        case 0xFD: // SBC Absolute, X, 4 cycles, 5 if a page was crossed
+            tempAddr = ReadAbsoluteXIndexedAddress();
+            temp = Read(tempAddr);
+            sum = A - temp - Convert.ToByte(carryFlag);
+            overflowFlag = ((A ^ temp) & (A ^ sum) & 128) != 0;
+            carryFlag = sum >= 0;
+            A = (byte)sum;
+            zeroFlag = sum == 0;
+            negativeFlag = sum > 127;
             break;
         default:
             break;
         }
+        PrintLogLine(opcode, tempPC);
     }
 
     public static byte Read(ushort address) {
@@ -839,6 +1250,30 @@ unsafe class Emulator {
         byte tempHigh = Read(PC);
         PC += 1;
         return (ushort)(tempLow + tempHigh * 0x100);
+    }
+    public static ushort ReadAbsoluteXIndexedAddress() {
+        ushort address = ReadAbsoluteAddress();
+        return (ushort)(address + X);
+    }
+    public static ushort ReadAbsoluteYIndexedAddress() {
+        ushort address = ReadAbsoluteAddress();
+        return (ushort)(address + Y);
+    }
+    public static ushort ReadIndirectYIndexedAddress() {
+        byte temp = Read(PC);
+        PC += 1;
+        byte tempLow = Read(temp);
+        byte tempHigh = Read((ushort)(temp + 1));
+        ushort address = (ushort)(tempLow + tempHigh * 0x100);
+        return (ushort)(address + Y);
+    }
+    public static ushort ReadIndirectXIndexedAddress() {
+        byte temp = (byte)(Read(PC) + X);
+        PC += 1;
+        byte tempLow = Read(temp);
+        byte tempHigh = Read((ushort)(temp + 1));
+        ushort address = (ushort)(tempLow + tempHigh * 0x100);
+        return address;
     }
     public static void Write(byte value, ushort address) {
         if (address < 0x800)
@@ -915,8 +1350,6 @@ unsafe public class ScrollBox {
             }
             vy = nvy;
         }
-        Console.WriteLine(
-            $"Rendering {elements.Count} items, overlapped: {overlapped}");
         SDL3.SDL_SetSurfaceClipRect(surface, null);
     }
     private void RecomputeHeight() {
